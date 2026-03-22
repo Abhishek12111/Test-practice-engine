@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Practice Engine</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --surface: #1a1d27;
+            --surface2: #23273a;
+            --border: #2e3247;
+            --accent: #4f8ef7;
+            --accent2: #7c5af7;
+            --green: #22d3a5;
+            --red: #f75a5a;
+            --yellow: #f7c55a;
+            --purple: #b57af7;
+            --text: #e8eaf0;
+            --muted: #7a7f99;
+            --mono: 'IBM Plex Mono', monospace;
+            --sans: 'DM Sans', sans-serif;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--sans);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Noise overlay for texture */
+        body::before {
+            content: '';
+            position: fixed; inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        header {
+            background: rgba(15,17,23,0.92);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 14px 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo {
+            font-family: var(--mono);
+            font-weight: 600;
+            font-size: 13px;
+            letter-spacing: 2px;
+            color: var(--accent);
+            text-transform: uppercase;
+        }
+        .logo span { color: var(--muted); }
+
+        #timerDisplay {
+            font-family: var(--mono);
+            font-size: 15px;
+            color: var(--text);
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            padding: 6px 14px;
+            border-radius: 6px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+        #timerDisplay.paused { color: var(--yellow); border-color: var(--yellow); }
+        #pauseBtn {
+            background: none; border: 1px solid var(--border);
+            color: var(--muted); padding: 4px 10px;
+            border-radius: 4px; cursor: pointer; font-size: 12px;
+            font-family: var(--mono); transition: all 0.2s;
+        }
+        #pauseBtn:hover { border-color: var(--accent); color: var(--accent); }
+
+        main {
+            flex: 1; display: flex; align-items: flex-start;
+            justify-content: center; padding: 40px 16px;
+            position: relative; z-index: 1;
+        }
+
+        /* --- SETUP SCREEN --- */
+        #setupScreen {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 48px;
+            max-width: 520px; width: 100%;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+        }
+        #setupScreen h1 {
+            font-size: 26px; font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        #setupScreen p { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 28px; }
+        label.field-label { display: block; font-size: 12px; font-family: var(--mono); color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+        input[type="text"] {
+            width: 100%; background: var(--surface2);
+            border: 1px solid var(--border); color: var(--text);
+            padding: 12px 16px; border-radius: 8px;
+            font-family: var(--mono); font-size: 13px;
+            outline: none; transition: border-color 0.2s;
+        }
+        input[type="text"]:focus { border-color: var(--accent); }
+        input[type="text"]::placeholder { color: var(--muted); }
+        .schema-box {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 14px 18px;
+            margin: 20px 0; font-family: var(--mono);
+            font-size: 12px; color: var(--muted); line-height: 1.8;
+        }
+        .schema-box strong { color: var(--accent); }
+        .btn-primary {
+            width: 100%; background: var(--accent);
+            color: white; border: none;
+            padding: 14px; border-radius: 8px;
+            font-family: var(--sans); font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+            letter-spacing: 0.3px;
+        }
+        .btn-primary:hover { background: #6ca0f8; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(79,142,247,0.3); }
+
+        /* --- LOADING --- */
+        #loadingScreen { flex-direction: column; align-items: center; gap: 20px; }
+        .loader {
+            width: 44px; height: 44px; border-radius: 50%;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* --- START SCREEN --- */
+        #startScreen {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 16px; padding: 48px; max-width: 480px;
+            width: 100%; text-align: center;
+        }
+        .success-icon { font-size: 48px; margin-bottom: 16px; }
+        #startScreen h2 { font-size: 22px; margin-bottom: 8px; color: var(--green); }
+        #startScreen p { color: var(--muted); margin-bottom: 24px; }
+        .rules-box {
+            background: var(--surface2); border-left: 3px solid var(--accent2);
+            border-radius: 0 8px 8px 0; padding: 14px 18px;
+            text-align: left; margin-bottom: 28px;
+            font-size: 13px; color: var(--muted); line-height: 1.8;
+        }
+        .btn-start {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: white; border: none; padding: 14px 48px;
+            border-radius: 50px; font-size: 16px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+            box-shadow: 0 8px 32px rgba(79,142,247,0.35);
+        }
+        .btn-start:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(79,142,247,0.45); }
+
+        /* --- EXAM SCREEN --- */
+        #examScreen { max-width: 900px; width: 100%; display: flex; gap: 20px; flex-wrap: wrap; }
+        .exam-main { flex: 1; min-width: 300px; }
+        .exam-sidebar { width: 220px; }
+
+        /* Question Card */
+        .question-card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 16px; padding: 32px;
+        }
+        .q-meta {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 20px; font-size: 12px; font-family: var(--mono);
+            color: var(--muted);
+        }
+        .domain-tag {
+            background: var(--surface2); border: 1px solid var(--border);
+            padding: 4px 10px; border-radius: 20px; color: var(--accent);
+            font-size: 11px;
+        }
+        
+        /* Progress Bar */
+        .progress-wrap { margin-bottom: 20px; }
+        .progress-bar-bg {
+            height: 4px; background: var(--border); border-radius: 2px; overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
+            border-radius: 2px; transition: width 0.4s ease;
+        }
+        .progress-label { font-size: 11px; font-family: var(--mono); color: var(--muted); margin-top: 6px; }
+
+        /* Flags Row */
+        .flags-row {
+            display: flex; justify-content: space-between; align-items: center;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 10px 14px; margin-bottom: 24px;
+        }
+        .flag-label {
+            display: flex; align-items: center; gap: 8px;
+            cursor: pointer; font-size: 13px; color: var(--muted);
+            transition: color 0.2s; user-select: none;
+        }
+        .flag-label:hover { color: var(--text); }
+        .flag-label input[type="checkbox"] { display: none; }
+        .flag-pill {
+            padding: 4px 12px; border-radius: 20px;
+            border: 1px solid var(--border); font-size: 12px;
+            font-family: var(--mono); transition: all 0.2s;
+        }
+        input[type="checkbox"]:checked + .flag-pill.review { background: rgba(247,197,90,0.15); border-color: var(--yellow); color: var(--yellow); }
+        input[type="checkbox"]:checked + .flag-pill.study { background: rgba(181,122,247,0.15); border-color: var(--purple); color: var(--purple); }
+        .flag-pill:not(.active) { color: var(--muted); }
+        .q-timer { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+        .question-text {
+            font-size: 17px; line-height: 1.75;
+            color: var(--text); margin-bottom: 28px; font-weight: 400;
+        }
+
+        /* Options */
+        .option-item { position: relative; margin-bottom: 10px; }
+        .option-item input[type="radio"] { display: none; }
+        .option-item label {
+            display: flex; align-items: flex-start; gap: 14px;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 10px; padding: 14px 18px;
+            cursor: pointer; transition: all 0.15s; font-size: 14px; line-height: 1.6;
+        }
+        .option-item label:hover { border-color: var(--accent); background: rgba(79,142,247,0.05); }
+        .option-item input[type="radio"]:checked + label {
+            background: rgba(79,142,247,0.1); border-color: var(--accent);
+        }
+        .opt-letter {
+            width: 26px; height: 26px; border-radius: 6px;
+            background: var(--surface); border: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: center;
+            font-family: var(--mono); font-size: 12px; font-weight: 600;
+            flex-shrink: 0; color: var(--muted); transition: all 0.15s;
+        }
+        .option-item input[type="radio"]:checked + label .opt-letter {
+            background: var(--accent); border-color: var(--accent); color: white;
+        }
+
+        /* Nav buttons */
+        .nav-row {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border);
+        }
+        .btn-nav {
+            padding: 10px 22px; border-radius: 8px; border: 1px solid var(--border);
+            background: transparent; color: var(--muted); cursor: pointer;
+            font-family: var(--sans); font-size: 14px; transition: all 0.2s;
+        }
+        .btn-nav:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+        .btn-nav:disabled { opacity: 0.3; cursor: not-allowed; }
+        .btn-next { background: var(--accent); border-color: var(--accent); color: white; }
+        .btn-next:hover:not(:disabled) { background: #6ca0f8; border-color: #6ca0f8; color: white; }
+        .btn-submit { background: var(--green); border-color: var(--green); color: #0a1a14; font-weight: 600; }
+        .btn-submit:hover { background: #2de8b5; border-color: #2de8b5; }
+
+        /* Sidebar */
+        .sidebar-card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; padding: 18px;
+        }
+        .sidebar-title { font-size: 11px; font-family: var(--mono); color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 12px; }
+        .legend { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+        .leg-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+        #questionGrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+        .grid-btn {
+            width: 100%; aspect-ratio: 1; border-radius: 6px;
+            border: 1px solid var(--border); background: var(--surface2);
+            color: var(--muted); font-family: var(--mono); font-size: 11px;
+            cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center;
+        }
+        .grid-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .grid-btn.answered { background: rgba(79,142,247,0.15); border-color: var(--accent); color: var(--accent); }
+        .grid-btn.review-flag { border-color: var(--yellow) !important; }
+        .grid-btn.study-flag { border-color: var(--purple) !important; }
+        .grid-btn.current { box-shadow: 0 0 0 2px var(--text); border-color: var(--text); color: var(--text); font-weight: 600; }
+        .sidebar-stats { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 11px; font-family: var(--mono); }
+        .stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .stat-val { font-size: 16px; font-weight: 600; color: var(--text); }
+        .stat-lbl { color: var(--muted); }
+
+        /* --- RESULTS SCREEN --- */
+        #resultScreen {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 16px; padding: 40px; max-width: 700px; width: 100%;
+        }
+        #resultScreen h2 { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+        .time-taken { font-family: var(--mono); font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+        .score-ring {
+            width: 140px; height: 140px; border-radius: 50%;
+            border: 4px solid var(--border); margin: 0 auto 32px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: var(--surface2);
+            position: relative;
+        }
+        .score-pct { font-size: 34px; font-weight: 700; font-family: var(--mono); }
+        .score-raw { font-size: 13px; font-family: var(--mono); color: var(--muted); }
+        .pass-banner {
+            text-align: center; padding: 12px; border-radius: 8px; margin-bottom: 28px;
+            font-weight: 600; font-size: 14px;
+        }
+        .pass-banner.pass { background: rgba(34,211,165,0.1); border: 1px solid var(--green); color: var(--green); }
+        .pass-banner.fail { background: rgba(247,90,90,0.1); border: 1px solid var(--red); color: var(--red); }
+
+        .section-title { font-size: 13px; font-family: var(--mono); color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 14px; border-top: 1px solid var(--border); padding-top: 20px; }
+        .domain-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 12px 0; border-bottom: 1px solid var(--border);
+        }
+        .domain-name { font-size: 14px; }
+        .domain-right { display: flex; align-items: center; gap: 12px; }
+        .domain-score { font-family: var(--mono); font-size: 13px; }
+        .domain-bar-wrap { width: 80px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+        .domain-bar { height: 100%; border-radius: 2px; }
+
+        .result-actions { display: flex; gap: 12px; margin-top: 28px; flex-wrap: wrap; }
+        .btn-review-main {
+            flex: 1; background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 14px; border-radius: 8px;
+            font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-review-main:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-restart {
+            background: transparent; border: 1px solid var(--border);
+            color: var(--muted); padding: 14px 24px; border-radius: 8px;
+            font-size: 14px; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-restart:hover { border-color: var(--red); color: var(--red); }
+
+        /* --- REVIEW SECTION --- */
+        .filter-row {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px 0; border-top: 1px solid var(--border); margin-top: 24px;
+        }
+        .filter-row h3 { font-size: 15px; font-weight: 600; }
+        select {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 8px 12px; border-radius: 6px;
+            font-family: var(--mono); font-size: 12px; outline: none; cursor: pointer;
+        }
+        select:focus { border-color: var(--accent); }
+
+        .review-item {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 12px; padding: 22px; margin-top: 14px;
+            border-left: 4px solid transparent;
+        }
+        .review-item.incorrect-item { border-left-color: var(--red); }
+        .review-item.correct-item { border-left-color: var(--green); }
+        .review-item.study-item { border-left-color: var(--purple); }
+        .review-item.review-item-flag { border-left-color: var(--yellow); }
+
+        .badge-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+        .badge {
+            font-size: 11px; font-family: var(--mono); padding: 3px 10px;
+            border-radius: 20px; border: 1px solid;
+        }
+        .badge-red { background: rgba(247,90,90,0.1); border-color: var(--red); color: var(--red); }
+        .badge-green { background: rgba(34,211,165,0.1); border-color: var(--green); color: var(--green); }
+        .badge-yellow { background: rgba(247,197,90,0.1); border-color: var(--yellow); color: var(--yellow); }
+        .badge-purple { background: rgba(181,122,247,0.1); border-color: var(--purple); color: var(--purple); }
+        .badge-gray { background: rgba(122,127,153,0.1); border-color: var(--muted); color: var(--muted); }
+
+        .review-q-text { font-size: 15px; font-weight: 500; margin-bottom: 12px; line-height: 1.6; }
+        .review-meta { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+        .review-meta strong { color: var(--text); }
+        .explanation-box {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; padding: 14px 16px; margin-top: 12px;
+            font-size: 13px; line-height: 1.7; color: var(--muted);
+        }
+        .explanation-box strong { color: var(--accent); }
+
+        .hidden { display: none !important; }
+        .flex { display: flex; }
+        .flex-col { flex-direction: column; }
+
+        /* --- PROMPT GENERATOR PANEL --- */
+        #promptPanel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 48px;
+            max-width: 520px; width: 100%;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+        }
+        .pg-header { margin-bottom: 24px; }
+        .pg-eyebrow {
+            font-family: var(--mono); font-size: 11px; letter-spacing: 2px;
+            text-transform: uppercase; color: var(--accent2); margin-bottom: 8px;
+        }
+        .pg-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+        .pg-sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+        .field-group { margin-bottom: 18px; }
+        .field-row { display: flex; gap: 14px; }
+        .field-row .field-group { flex: 1; }
+        .diff-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .diff-btn {
+            padding: 8px 4px; border-radius: 6px;
+            border: 1px solid var(--border); background: var(--surface2);
+            color: var(--muted); font-family: var(--mono); font-size: 11px;
+            cursor: pointer; transition: all 0.15s; text-align: center;
+        }
+        .diff-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .diff-btn.active { background: rgba(79,142,247,0.15); border-color: var(--accent); color: var(--accent); }
+        .diff-btn[data-d="Easy"].active { background: rgba(34,211,165,0.12); border-color: var(--green); color: var(--green); }
+        .diff-btn[data-d="Hard"].active { background: rgba(247,90,90,0.12); border-color: var(--red); color: var(--red); }
+        .diff-btn[data-d="Mixed"].active { background: rgba(247,197,90,0.12); border-color: var(--yellow); color: var(--yellow); }
+        textarea.field-input {
+            width: 100%; background: var(--surface2);
+            border: 1px solid var(--border); color: var(--text);
+            padding: 11px 14px; border-radius: 8px;
+            font-family: var(--mono); font-size: 12px;
+            outline: none; transition: border-color 0.2s;
+            resize: vertical; min-height: 70px; line-height: 1.6;
+        }
+        textarea.field-input:focus { border-color: var(--accent); }
+        textarea.field-input::placeholder { color: var(--muted); }
+        .btn-gen {
+            width: 100%; background: linear-gradient(135deg, var(--accent2), var(--accent));
+            color: white; border: none; padding: 14px; border-radius: 8px;
+            font-family: var(--sans); font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: all 0.2s; letter-spacing: 0.3px;
+        }
+        .btn-gen:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(124,90,247,0.35); }
+
+        /* Prompt Output */
+        #promptOutput { margin-top: 24px; display: none; }
+        .prompt-out-label {
+            font-family: var(--mono); font-size: 11px; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .btn-copy {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--muted); padding: 4px 12px; border-radius: 4px;
+            font-family: var(--mono); font-size: 11px; cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-copy:hover { border-color: var(--green); color: var(--green); }
+        .btn-copy.copied { border-color: var(--green); color: var(--green); background: rgba(34,211,165,0.1); }
+        #promptText {
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 8px; padding: 16px; font-family: var(--mono);
+            font-size: 12px; line-height: 1.8; color: var(--text);
+            max-height: 220px; overflow-y: auto; white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .ai-links {
+            margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap;
+        }
+        .ai-link {
+            flex: 1; min-width: 100px; text-align: center;
+            padding: 10px 8px; border-radius: 8px;
+            border: 1px solid var(--border); text-decoration: none;
+            font-size: 12px; font-family: var(--mono); color: var(--muted);
+            transition: all 0.2s; background: var(--surface2);
+        }
+        .ai-link:hover { color: var(--text); border-color: var(--accent); }
+        .ai-link span { display: block; font-size: 18px; margin-bottom: 4px; }
+        .divider {
+            display: flex; align-items: center; gap: 12px;
+            margin: 28px 0 24px; color: var(--muted); font-size: 12px;
+            font-family: var(--mono);
+        }
+        .divider::before, .divider::after {
+            content: ''; flex: 1; height: 1px; background: var(--border);
+        }
+        .step-badge {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 22px; height: 22px; border-radius: 50%;
+            background: var(--surface2); border: 1px solid var(--border);
+            font-size: 10px; font-family: var(--mono); color: var(--muted);
+            margin-right: 6px;
+        }
+        .nav-tabs {
+            display: flex; gap: 0; margin-bottom: 28px;
+            border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+        }
+        .nav-tab {
+            flex: 1; padding: 10px; text-align: center;
+            background: var(--surface2); color: var(--muted);
+            font-family: var(--mono); font-size: 12px; cursor: pointer;
+            border: none; transition: all 0.2s;
+        }
+        .nav-tab.active { background: var(--accent); color: white; }
+        .nav-tab:not(.active):hover { color: var(--text); background: var(--surface); }
+
+        /* main layout: two cards stacked on mobile, side by side on desktop via JS toggle */
+        #mainSetupWrapper {
+            display: flex; flex-direction: column; gap: 0;
+            max-width: 520px; width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo">TEST<span>//</span>ENGINE</div>
+        <div id="timerDisplay">
+            <span id="timerText">00:00</span>
+            <button id="pauseBtn" onclick="togglePause()">⏸ PAUSE</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Setup Screen -->
+        <div id="setupScreen">
+            <!-- Tabs -->
+            <div class="nav-tabs">
+                <button class="nav-tab active" id="tab1" onclick="switchTab(1)">✨ Generate Question Bank</button>
+                <button class="nav-tab" id="tab2" onclick="switchTab(2)">📂 Load from Sheets</button>
+            </div>
+
+            <!-- TAB 1: Prompt Generator -->
+            <div id="tabPrompt">
+                <div class="pg-header">
+                    <div class="pg-eyebrow">Step 1 of 2</div>
+                    <div class="pg-title">Build Your Question Bank</div>
+                    <div class="pg-sub">Fill in the details below → copy the prompt → paste it into ChatGPT / Gemini / Claude → get your CSV → upload to Google Sheets → come back and load it here.</div>
+                </div>
+
+                <div class="field-row">
+                    <div class="field-group">
+                        <label class="field-label">Exam / Topic Name</label>
+                        <input type="text" id="pgExam" placeholder="e.g. ITGC Audit, CISSP, AWS SAA">
+                    </div>
+                    <div class="field-group" style="max-width:110px;">
+                        <label class="field-label">No. of Questions</label>
+                        <input type="text" id="pgCount" placeholder="e.g. 30" style="text-align:center;">
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">Difficulty Level</label>
+                    <div class="diff-grid">
+                        <button class="diff-btn" data-d="Easy" onclick="setDiff(this)">🟢 Easy</button>
+                        <button class="diff-btn active" data-d="Medium" onclick="setDiff(this)">🟡 Medium</button>
+                        <button class="diff-btn" data-d="Hard" onclick="setDiff(this)">🔴 Hard</button>
+                        <button class="diff-btn" data-d="Mixed" onclick="setDiff(this)">🎲 Mixed</button>
+                    </div>
+                </div>
+
+                <div class="field-group">
+                    <label class="field-label">Specific Topics / Domains <span style="color:var(--muted);font-size:10px;">(optional)</span></label>
+                    <textarea class="field-input" id="pgTopics" placeholder="e.g. Logical Access Controls, Change Management, Backup & Recovery, SOX Compliance..."></textarea>
+                </div>
+
+                <button class="btn-gen" onclick="generatePrompt()">✨ Generate Prompt to Copy</button>
+
+                <!-- Output -->
+                <div id="promptOutput">
+                    <div class="prompt-out-label">
+                        <span>📋 Your AI Prompt — Copy & Paste into any AI</span>
+                        <button class="btn-copy" id="copyBtn" onclick="copyPrompt()">Copy</button>
+                    </div>
+                    <div id="promptText"></div>
+                    <div class="ai-links">
+                        <a class="ai-link" href="https://chatgpt.com" target="_blank"><span>🤖</span>ChatGPT</a>
+                        <a class="ai-link" href="https://gemini.google.com" target="_blank"><span>✨</span>Gemini</a>
+                        <a class="ai-link" href="https://claude.ai" target="_blank"><span>🧠</span>Claude</a>
+                        <a class="ai-link" href="https://copilot.microsoft.com" target="_blank"><span>💎</span>Copilot</a>
+                    </div>
+                    <div class="divider">then</div>
+                    <div style="font-size:13px;color:var(--muted);line-height:1.9;">
+                        <span style="color:var(--text)"><span class="step-badge">1</span>Paste the prompt into your AI of choice above</span><br>
+                        <span style="color:var(--text)"><span class="step-badge">2</span>AI will return data in CSV format</span><br>
+                        <span style="color:var(--text)"><span class="step-badge">3</span>Open <a href="https://sheets.google.com" target="_blank" style="color:var(--accent)">Google Sheets</a> → paste the CSV → name the sheet <strong style="color:var(--accent)">Questions</strong></span><br>
+                        <span style="color:var(--text)"><span class="step-badge">4</span>Share the sheet → "Anyone with link can view"</span><br>
+                        <span style="color:var(--text)"><span class="step-badge">5</span>Come back → click "Load from Sheets" tab above</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: Load from Sheets -->
+            <div id="tabLoad" class="hidden">
+                <div class="pg-header">
+                    <div class="pg-eyebrow">Step 2 of 2</div>
+                    <div class="pg-title">Load Your Question Bank</div>
+                    <div class="pg-sub">Paste your Google Sheets link below. The sheet must be public and the tab must be named <strong style="color:var(--accent)">Questions</strong>.</div>
+                </div>
+                <label class="field-label" for="sheetUrl">Google Sheets URL</label>
+                <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...">
+                <div class="schema-box" style="margin-top:16px;">
+                    <strong>Expected Column Format:</strong><br>
+                    A: ID &nbsp;|&nbsp; B: Domain &nbsp;|&nbsp; C: Question<br>
+                    D: Opt A &nbsp;|&nbsp; E: Opt B &nbsp;|&nbsp; F: Opt C &nbsp;|&nbsp; G: Opt D<br>
+                    H: Answer (A/B/C/D) &nbsp;|&nbsp; I: Explanation
+                </div>
+                <button class="btn-primary" style="margin-top:20px;" onclick="fetchSheetData()">Load Questions →</button>
+            </div>
+        </div>
+
+        <!-- Loading Screen -->
+        <div id="loadingScreen" class="hidden flex flex-col" style="align-items:center;gap:16px;padding-top:80px;">
+            <div class="loader"></div>
+            <p style="color:var(--muted);font-family:var(--mono);font-size:13px;" id="loadingText">Fetching questions...</p>
+        </div>
+
+        <!-- Start Screen -->
+        <div id="startScreen" class="hidden">
+            <div class="success-icon">✅</div>
+            <h2>Questions Loaded!</h2>
+            <p id="examInfo">X questions ready.</p>
+            <div class="rules-box">
+                ⏱ Timer starts on exam begin<br>
+                🧭 Navigate freely between questions<br>
+                🚩 Flag questions for review anytime<br>
+                📊 Get domain-wise analysis at the end
+            </div>
+            <button class="btn-start" onclick="startExam()">Begin Exam →</button>
+        </div>
+
+        <!-- Exam Screen -->
+        <div id="examScreen" class="hidden" style="display:none;">
+            <!-- Sidebar: Navigator -->
+            <div class="exam-sidebar">
+                <div class="sidebar-card">
+                    <div class="sidebar-title">Navigator</div>
+                    <div class="legend">
+                        <div class="legend-item"><div class="leg-dot" style="background:var(--accent)"></div> Answered</div>
+                        <div class="legend-item"><div class="leg-dot" style="background:var(--surface2);border:1px solid var(--border)"></div> Unanswered</div>
+                        <div class="legend-item"><div class="leg-dot" style="background:var(--yellow);border-radius:2px;width:10px;height:10px;border:1px solid var(--yellow)"></div> Review Flag</div>
+                        <div class="legend-item"><div class="leg-dot" style="background:var(--purple);border-radius:2px;width:10px;height:10px;border:1px solid var(--purple)"></div> Study Flag</div>
+                    </div>
+                    <div id="questionGrid"></div>
+                    <div class="sidebar-stats">
+                        <div class="stat"><span class="stat-val" id="statAnswered">0</span><span class="stat-lbl">Done</span></div>
+                        <div class="stat"><span class="stat-val" id="statUnanswered">0</span><span class="stat-lbl">Left</span></div>
+                        <div class="stat"><span class="stat-val" id="statFlagged">0</span><span class="stat-lbl">Flagged</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Exam Area -->
+            <div class="exam-main">
+                <div class="question-card">
+                    <div class="q-meta">
+                        <span id="questionCounter">Q 1 / X</span>
+                        <span class="domain-tag" id="domainDisplay">Domain</span>
+                    </div>
+                    <div class="progress-wrap">
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
+                        </div>
+                        <div class="progress-label" id="progressLabel">0 of 0 answered</div>
+                    </div>
+                    <div class="flags-row">
+                        <div style="display:flex;gap:16px;">
+                            <label class="flag-label">
+                                <input type="checkbox" id="chkReview" onchange="toggleReview()">
+                                <span class="flag-pill review">🚩 Review</span>
+                            </label>
+                            <label class="flag-label">
+                                <input type="checkbox" id="chkStudy" onchange="toggleStudy()">
+                                <span class="flag-pill study">💡 Study</span>
+                            </label>
+                        </div>
+                        <div class="q-timer" id="qTimeDisplay">⏱ 0s</div>
+                    </div>
+                    <div id="questionText" class="question-text"></div>
+                    <div id="optionsContainer"></div>
+                    <div class="nav-row">
+                        <button class="btn-nav" onclick="prevQuestion()" id="btnPrev">← Prev</button>
+                        <button class="btn-nav btn-next" onclick="nextQuestion()" id="btnNext">Next →</button>
+                        <button class="btn-nav btn-submit hidden" onclick="confirmSubmit()" id="btnSubmit">Submit Exam ✓</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Screen -->
+        <div id="resultScreen" class="hidden">
+            <h2>Exam Complete</h2>
+            <div class="time-taken" id="timeTakenDisplay">Time: --</div>
+            <div class="score-ring">
+                <span class="score-pct" id="scoreDisplay">--%</span>
+                <span class="score-raw" id="rawScoreDisplay">- / -</span>
+            </div>
+            <div class="pass-banner" id="passBanner"></div>
+            <div class="section-title">Domain Breakdown</div>
+            <div id="domainAnalysis"></div>
+            <div class="result-actions">
+                <button class="btn-review-main" onclick="reviewAnswers()" id="btnReview">📋 Review Answers & Flagged</button>
+                <button class="btn-restart" onclick="restartExam()">↩ Restart</button>
+            </div>
+            <!-- Filter Row -->
+            <div id="reviewFilterContainer" class="filter-row hidden">
+                <h3>Answer Review</h3>
+                <select id="reviewFilter" onchange="applyReviewFilter()">
+                    <option value="all">All Marked / Incorrect</option>
+                    <option value="incorrect">❌ Incorrect Only</option>
+                    <option value="review">🚩 Review Flags</option>
+                    <option value="study">💡 Study Flags</option>
+                </select>
+            </div>
+            <div id="reviewSection" class="hidden"></div>
+        </div>
+    </main>
+
+    <script>
+        // --- TAB & PROMPT GENERATOR ---
+        let selectedDiff = 'Medium';
+
+        function switchTab(n) {
+            document.getElementById('tab1').classList.toggle('active', n === 1);
+            document.getElementById('tab2').classList.toggle('active', n === 2);
+            document.getElementById('tabPrompt').classList.toggle('hidden', n !== 1);
+            document.getElementById('tabLoad').classList.toggle('hidden', n !== 2);
+        }
+
+        function setDiff(el) {
+            document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+            selectedDiff = el.dataset.d;
+        }
+
+        function generatePrompt() {
+            const exam = document.getElementById('pgExam').value.trim();
+            const count = document.getElementById('pgCount').value.trim() || '30';
+            const topics = document.getElementById('pgTopics').value.trim();
+
+            if (!exam) {
+                const el = document.getElementById('pgExam');
+                el.focus(); el.style.borderColor = 'var(--red)';
+                setTimeout(() => el.style.borderColor = '', 2000);
+                return;
+            }
+
+            const topicsLine = topics
+                ? `\nFocus on these specific topics/domains: ${topics}.`
+                : `\nCover a wide variety of topics and domains relevant to the "${exam}" exam.`;
+
+            const prompt = `You are an expert question bank creator for competitive and certification exams.
+
+Create exactly ${count} multiple choice questions for the "${exam}" exam at ${selectedDiff} difficulty level.${topicsLine}
+
+OUTPUT FORMAT — Return ONLY a raw CSV table. No intro text, no explanation, no markdown, no code blocks. Start directly with the first data row.
+
+Use EXACTLY these 9 columns in this exact order:
+ID,Domain,Question,Option A,Option B,Option C,Option D,Answer,Explanation
+
+STRICT RULES:
+1. ID: sequential number starting from 1
+2. Domain: the specific topic/chapter this question belongs to
+3. Question: clear, unambiguous question text
+4. Option A / B / C / D: four distinct answer choices (no "All of the above" or "None of the above")
+5. Answer: ONLY the letter A, B, C, or D — nothing else
+6. Explanation: a clear 1-2 sentence explanation of why the correct answer is right
+7. If any cell contains a comma, wrap that cell in double quotes
+8. Do NOT include a header row — start directly with row 1 data
+9. Make sure wrong options are plausible, not obviously incorrect
+
+Generate all ${count} questions now.`;
+
+            document.getElementById('promptText').innerText = prompt;
+            const output = document.getElementById('promptOutput');
+            output.style.display = 'block';
+            output.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            const btn = document.getElementById('copyBtn');
+            btn.innerText = 'Copy'; btn.classList.remove('copied');
+        }
+
+        function copyPrompt() {
+            const text = document.getElementById('promptText').innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.getElementById('copyBtn');
+                btn.innerText = '✓ Copied!'; btn.classList.add('copied');
+                setTimeout(() => { btn.innerText = 'Copy'; btn.classList.remove('copied'); }, 3000);
+            });
+        }
+
+        // --- State Variables ---
+        let questions = [], currentIdx = 0, userAnswers = {};
+        let timerInterval, timeElapsed = 0, isPaused = false;
+        let reviewLater = {}, studyLater = {}, timePerQuestion = {};
+
+        function fetchSheetData() {
+            const urlInput = document.getElementById('sheetUrl').value.trim();
+            if (!urlInput) return alert("Please enter a Google Sheets URL.");
+            const match = urlInput.match(/\/d\/([a-zA-Z0-9-_]+)/);
+            if (!match) return alert("Invalid Google Sheets URL.");
+            const sheetId = match[1];
+            show('loadingScreen'); hide('setupScreen');
+            const queryUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=Questions`;
+            fetch(queryUrl).then(r => r.text()).then(text => {
+                const s = text.indexOf('{'), e = text.lastIndexOf('}') + 1;
+                if (s === -1) throw new Error("Bad format");
+                const data = JSON.parse(text.substring(s, e));
+                parseData(data.table.rows);
+            }).catch(err => {
+                alert("Error fetching data. Make sure sheet is public and has a 'Questions' tab.");
+                show('setupScreen'); hide('loadingScreen');
+            });
+        }
+
+        function parseData(rows) {
+            questions = [];
+            rows.forEach((row, i) => {
+                const c = row.c; if (!c) return;
+                if (c[0] && typeof c[0].v === 'string' && c[0].v.toUpperCase() === 'ID') return;
+                if (c[2] && c[2].v) {
+                    questions.push({
+                        id: (c[0]?.v ?? `q_${i}`).toString(),
+                        domain: c[1]?.v ?? "Uncategorized",
+                        text: c[2].v,
+                        options: { A: c[3]?.v?.toString()||null, B: c[4]?.v?.toString()||null, C: c[5]?.v?.toString()||null, D: c[6]?.v?.toString()||null },
+                        answer: c[7]?.v?.toString().trim().toUpperCase() || "",
+                        explanation: c[8]?.v?.toString() || "No explanation provided."
+                    });
+                }
+            });
+            if (!questions.length) {
+                alert("No questions found!"); show('setupScreen'); hide('loadingScreen'); return;
+            }
+            for (let i = questions.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i+1));
+                [questions[i], questions[j]] = [questions[j], questions[i]];
+            }
+            hide('loadingScreen');
+            document.getElementById('examInfo').innerText = `${questions.length} questions loaded and shuffled.`;
+            show('startScreen');
+        }
+
+        function startExam() {
+            hide('startScreen'); show('examScreen'); 
+            document.getElementById('examScreen').style.display = 'flex';
+            const td = document.getElementById('timerDisplay');
+            td.style.display = 'flex';
+            buildGrid();
+            renderQuestion();
+            timerInterval = setInterval(tick, 1000);
+        }
+
+        function tick() {
+            if (isPaused) return;
+            timeElapsed++;
+            updateTimer();
+            const qId = questions[currentIdx].id;
+            timePerQuestion[qId] = (timePerQuestion[qId] || 0) + 1;
+            document.getElementById('qTimeDisplay').innerText = `⏱ ${timePerQuestion[qId]}s`;
+        }
+
+        function updateTimer() {
+            const m = Math.floor(timeElapsed / 60), s = timeElapsed % 60;
+            document.getElementById('timerText').innerText = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            const btn = document.getElementById('pauseBtn');
+            const td = document.getElementById('timerDisplay');
+            btn.innerText = isPaused ? '▶ RESUME' : '⏸ PAUSE';
+            td.classList.toggle('paused', isPaused);
+        }
+
+        function renderQuestion() {
+            const q = questions[currentIdx];
+            document.getElementById('questionCounter').innerText = `Q ${currentIdx+1} / ${questions.length}`;
+            document.getElementById('domainDisplay').innerText = q.domain;
+            document.getElementById('questionText').innerText = q.text;
+            document.getElementById('chkReview').checked = !!reviewLater[q.id];
+            document.getElementById('chkStudy').checked = !!studyLater[q.id];
+            document.getElementById('qTimeDisplay').innerText = `⏱ ${timePerQuestion[q.id] || 0}s`;
+
+            const answered = Object.keys(userAnswers).length;
+            const pct = (answered / questions.length) * 100;
+            document.getElementById('progressFill').style.width = pct + '%';
+            document.getElementById('progressLabel').innerText = `${answered} of ${questions.length} answered`;
+
+            const opts = document.getElementById('optionsContainer');
+            opts.innerHTML = '';
+            ['A','B','C','D'].forEach(opt => {
+                if (q.options[opt]) {
+                    const checked = userAnswers[q.id] === opt ? 'checked' : '';
+                    opts.innerHTML += `
+                        <div class="option-item">
+                            <input type="radio" name="q_opt" id="opt_${opt}" value="${opt}" ${checked} onchange="saveAnswer('${q.id}','${opt}')">
+                            <label for="opt_${opt}"><span class="opt-letter">${opt}</span>${q.options[opt]}</label>
+                        </div>`;
+                }
+            });
+
+            document.getElementById('btnPrev').disabled = currentIdx === 0;
+            const btnNext = document.getElementById('btnNext');
+            const btnSubmit = document.getElementById('btnSubmit');
+            if (currentIdx === questions.length - 1) {
+                btnNext.style.display = 'none';
+                btnSubmit.style.display = 'inline-block';
+            } else {
+                btnNext.style.display = 'inline-block';
+                btnSubmit.style.display = 'none';
+            }
+            updateGrid();
+            updateStats();
+        }
+
+        function buildGrid() {
+            const grid = document.getElementById('questionGrid');
+            grid.innerHTML = '';
+            questions.forEach((_, i) => {
+                const btn = document.createElement('button');
+                btn.className = 'grid-btn';
+                btn.innerText = i + 1;
+                btn.onclick = () => { currentIdx = i; renderQuestion(); };
+                btn.id = `gb_${i}`;
+                grid.appendChild(btn);
+            });
+        }
+
+        function updateGrid() {
+            questions.forEach((q, i) => {
+                const btn = document.getElementById(`gb_${i}`);
+                if (!btn) return;
+                btn.className = 'grid-btn';
+                if (userAnswers[q.id]) btn.classList.add('answered');
+                if (reviewLater[q.id]) btn.classList.add('review-flag');
+                if (studyLater[q.id]) btn.classList.add('study-flag');
+                if (i === currentIdx) btn.classList.add('current');
+            });
+        }
+
+        function updateStats() {
+            const answered = Object.keys(userAnswers).length;
+            const flagged = Object.values(reviewLater).filter(Boolean).length + Object.values(studyLater).filter(Boolean).length;
+            document.getElementById('statAnswered').innerText = answered;
+            document.getElementById('statUnanswered').innerText = questions.length - answered;
+            document.getElementById('statFlagged').innerText = flagged;
+        }
+
+        function saveAnswer(qId, opt) { userAnswers[qId] = opt; updateGrid(); updateStats(); renderProgress(); }
+        function renderProgress() {
+            const answered = Object.keys(userAnswers).length;
+            document.getElementById('progressFill').style.width = (answered/questions.length*100) + '%';
+            document.getElementById('progressLabel').innerText = `${answered} of ${questions.length} answered`;
+        }
+        function toggleReview() { const qId = questions[currentIdx].id; reviewLater[qId] = document.getElementById('chkReview').checked; updateGrid(); updateStats(); }
+        function toggleStudy() { const qId = questions[currentIdx].id; studyLater[qId] = document.getElementById('chkStudy').checked; updateGrid(); updateStats(); }
+        function nextQuestion() { if (currentIdx < questions.length-1) { currentIdx++; renderQuestion(); } }
+        function prevQuestion() { if (currentIdx > 0) { currentIdx--; renderQuestion(); } }
+
+        function confirmSubmit() {
+            const un = questions.length - Object.keys(userAnswers).length;
+            const msg = un > 0 ? `${un} question(s) unanswered. Submit anyway?` : "Submit the exam?";
+            if (confirm(msg)) processResults();
+        }
+
+        function processResults() {
+            clearInterval(timerInterval);
+            hide('examScreen'); document.getElementById('timerDisplay').style.display = 'none';
+            show('resultScreen');
+            let score = 0, domStats = {};
+            questions.forEach(q => {
+                if (!domStats[q.domain]) domStats[q.domain] = { total:0, correct:0 };
+                domStats[q.domain].total++;
+                if (userAnswers[q.id] === q.answer) { score++; domStats[q.domain].correct++; }
+            });
+            const pct = Math.round(score / questions.length * 100);
+            document.getElementById('scoreDisplay').innerText = `${pct}%`;
+            document.getElementById('scoreDisplay').style.color = pct >= 70 ? 'var(--green)' : 'var(--red)';
+            document.getElementById('rawScoreDisplay').innerText = `${score} / ${questions.length}`;
+            const m = Math.floor(timeElapsed/60), s = timeElapsed%60;
+            document.getElementById('timeTakenDisplay').innerText = `Total Time: ${m}m ${s}s`;
+            const banner = document.getElementById('passBanner');
+            banner.className = `pass-banner ${pct >= 70 ? 'pass' : 'fail'}`;
+            banner.innerText = pct >= 70 ? '🎉 You Passed! Great job.' : '📚 Needs Improvement. Review your answers below.';
+            const da = document.getElementById('domainAnalysis'); da.innerHTML = '';
+            for (const [dom, st] of Object.entries(domStats)) {
+                const dp = Math.round(st.correct/st.total*100);
+                const col = dp >= 70 ? 'var(--green)' : 'var(--red)';
+                da.innerHTML += `<div class="domain-row">
+                    <span class="domain-name">${dom}</span>
+                    <div class="domain-right">
+                        <div class="domain-bar-wrap"><div class="domain-bar" style="width:${dp}%;background:${col}"></div></div>
+                        <span class="domain-score" style="color:${col}">${st.correct}/${st.total} (${dp}%)</span>
+                    </div>
+                </div>`;
+            }
+        }
+
+        function reviewAnswers() {
+            hide('btnReview');
+            show('reviewFilterContainer'); show('reviewSection');
+            const rs = document.getElementById('reviewSection'); rs.innerHTML = '';
+            let has = false;
+            questions.forEach((q, idx) => {
+                const ua = userAnswers[q.id];
+                const wrong = ua !== q.answer, isR = reviewLater[q.id], isS = studyLater[q.id];
+                if (!wrong && !isR && !isS) return;
+                has = true;
+                let badges = '';
+                badges += wrong ? '<span class="badge badge-red">❌ Incorrect</span>' : '<span class="badge badge-green">✅ Correct</span>';
+                if (isR) badges += '<span class="badge badge-yellow">🚩 Review Later</span>';
+                if (isS) badges += '<span class="badge badge-purple">💡 Study More</span>';
+                const t = timePerQuestion[q.id] || 0;
+                badges += `<span class="badge badge-gray">⏱ ${t>=60?Math.floor(t/60)+'m '+(t%60)+'s':t+'s'}</span>`;
+                const borderClass = wrong ? 'incorrect-item' : (isS ? 'study-item' : 'review-item-flag');
+                rs.innerHTML += `<div class="review-item ${borderClass}" data-incorrect="${wrong}" data-review="${!!isR}" data-study="${!!isS}">
+                    <div class="badge-row">${badges}</div>
+                    <p class="review-q-text">Q${idx+1}: ${q.text}</p>
+                    <p class="review-meta"><strong>Domain:</strong> ${q.domain}</p>
+                    <p class="review-meta"><strong>Your Answer:</strong> ${ua ? ua+'. '+q.options[ua] : '<em style="color:var(--muted)">Left Blank</em>'}</p>
+                    <p class="review-meta"><strong style="color:var(--green)">Correct:</strong> <span style="color:var(--green)">${q.answer}. ${q.options[q.answer]}</span></p>
+                    <div class="explanation-box"><strong>Explanation:</strong> ${q.explanation}</div>
+                </div>`;
+            });
+            if (!has) {
+                hide('reviewFilterContainer');
+                rs.innerHTML = '<div style="background:rgba(34,211,165,0.08);border:1px solid var(--green);border-radius:10px;padding:20px;color:var(--green);font-weight:500;text-align:center;">Perfect score — no items to review! 🎉</div>';
+            } else {
+                document.getElementById('reviewFilter').value = 'all';
+            }
+            document.getElementById('reviewFilterContainer').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function applyReviewFilter() {
+            const f = document.getElementById('reviewFilter').value;
+            document.querySelectorAll('.review-item').forEach(item => {
+                const show = f==='all' || (f==='incorrect'&&item.dataset.incorrect==='true') || (f==='review'&&item.dataset.review==='true') || (f==='study'&&item.dataset.study==='true');
+                item.style.display = show ? 'block' : 'none';
+            });
+        }
+
+        function restartExam() {
+            if (!confirm("Restart? All progress will be lost.")) return;
+            questions=[]; currentIdx=0; userAnswers={}; timeElapsed=0; isPaused=false;
+            reviewLater={}; studyLater={}; timePerQuestion={};
+            clearInterval(timerInterval);
+            hide('resultScreen'); show('setupScreen');
+            document.getElementById('sheetUrl').value = '';
+            document.getElementById('timerDisplay').style.display = 'none';
+            document.getElementById('timerText').innerText = '00:00';
+            // Reset to Tab 1
+            switchTab(1);
+            document.getElementById('promptOutput').style.display = 'none';
+        }
+
+        function show(id) { document.getElementById(id).classList.remove('hidden'); }
+        function hide(id) { document.getElementById(id).classList.add('hidden'); }
+    </script>
+</body>
+</html>
